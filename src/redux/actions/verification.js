@@ -1,108 +1,128 @@
-import axios from 'axios';
+import axios from "axios";
 
-// Действия
+// --- Простые экшены (без логики) ---
 export const setUserDetails = ({ name, email, phoneNumber, address }) => ({
-  type: 'SET_USER_DETAILS',
+  type: "SET_USER_DETAILS",
   payload: { name, email, phoneNumber, address },
 });
 
-export const saveUserDetails = (userDetails) => {
-  return async (dispatch) => {
-    dispatch(setUserDetails(userDetails)); // сохраняем в store
-
-    dispatch({ type: 'SET_USER_DETAILS_LOADING' }); // Устанавливаем состояние загрузки
-
-    try {
-      const response = await fetch('/users', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(userDetails),
-      });
-
-      if (!response.ok) {
-        throw new Error('Ошибка при сохранении данных на сервере');
-      }
-
-      const data = await response.json();
-
-      dispatch({
-        type: 'SET_USER_DETAILS_SUCCESS',
-        payload: data,
-      });
-    } catch (error) {
-      dispatch({
-        type: 'SET_USER_DETAILS_FAILURE',
-        payload: error.message,
-      });
-    }
-  };
-};
-
-
-export const userExit = () =>({
-    type: "USER_EXIT",
-})
+export const userExit = () => ({
+  type: "USER_EXIT",
+});
 
 export const setCodeSent = (status) => ({
-  type: 'SET_CODE_SENT',
+  type: "SET_CODE_SENT",
   payload: status,
 });
 
 export const setVerificationCode = (code) => ({
-  type: 'SET_VERIFICATION_CODE',
+  type: "SET_VERIFICATION_CODE",
   payload: code,
 });
 
 export const setVerificationConfirm = (status) => ({
-  type: 'SET_VERIFICATION_CONFIRM',
+  type: "SET_VERIFICATION_CONFIRM",
   payload: status,
 });
 
-// Новый action для установки существования пользователя
 export const setUserExistence = (exists) => ({
-  type: 'SET_USER_EXISTENCE',
+  type: "SET_USER_EXISTENCE",
   payload: exists,
 });
 
-// Thunk для отправки кода
-export const sendVerificationCode = (email) => async (dispatch) => {
-  try {
-    const response = await axios.post('/send-email', { email });
+// --- Вспомогательная функция для базового URL (только здесь, без отдельного файла) ---
+const getBaseUrl = () => "http://localhost:3001";
 
-    if (response.status === 200) {
-      dispatch(setCodeSent(true));
-    } else {
-      alert('Ошибка при отправке кода');
+// --- Thunk: сохранение данных пользователя ---
+export const saveUserDetails = (userDetails) => async (dispatch) => {
+  dispatch(setUserDetails(userDetails));
+  dispatch({ type: "SET_USER_DETAILS_LOADING" });
+
+  const baseUrl = getBaseUrl();
+
+  try {
+    const response = await fetch(`${baseUrl}/api/users`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(userDetails),
+    });
+
+    if (!response.ok) {
+      throw new Error("Ошибка при сохранении данных на сервере");
     }
+
+    const data = await response.json();
+
+    dispatch({
+      type: "SET_USER_DETAILS_SUCCESS",
+      payload: data,
+    });
   } catch (error) {
-    alert('Ошибка при отправке кода');
-    console.error(error);
+    console.error("saveUserDetails error:", error);
+    dispatch({
+      type: "SET_USER_DETAILS_FAILURE",
+      payload: error.message,
+    });
   }
 };
 
-// Thunk для проверки кода и существования пользователя
-export const verifyCode = (email, code) => async (dispatch) => {
+// --- Thunk: отправка кода подтверждения ---
+export const sendVerificationCode = (email) => async (dispatch) => {
+  const baseUrl = getBaseUrl();
+
   try {
-    const response = await axios.post('/verify-code', { email, code });
+    const response = await axios.post(
+      `${baseUrl}/api/verification/send-email`,
+      { email },
+    );
+
+    // Лучше не использовать alert — кидаем статус в стор, интерфейс сам покажет сообщение
+    if (response.status === 200) {
+      dispatch(setCodeSent(true));
+    } else {
+      dispatch(setCodeSent(false));
+      throw new Error("Сервер вернул неожиданный статус при отправке кода");
+    }
+  } catch (error) {
+    console.error("sendVerificationCode error:", error);
+    dispatch(setCodeSent(false));
+  }
+};
+
+// --- Thunk: проверка кода ---
+export const verifyCode = (email, code) => async (dispatch) => {
+  const baseUrl = getBaseUrl();
+
+  try {
+    const response = await axios.post(
+      `${baseUrl}/api/verification/verify-code`,
+      {
+        email,
+        code,
+      },
+    );
 
     if (response.status === 200) {
       dispatch(setVerificationConfirm(true));
     } else {
       dispatch(setVerificationConfirm(false));
+      throw new Error("Код не подтверждён или сервер вернул ошибку");
     }
   } catch (error) {
-    alert('Ошибка при проверке кода: ' + error.message);
-    console.error('Ошибка:', error);
+    console.error("verifyCode error:", error);
+    dispatch(setVerificationConfirm(false));
   }
 };
 
-// Thunk для получения данных пользователя по e-mail с обновлением isUserExist
+// --- Thunk: получение данных пользователя по email ---
 export const fetchUserData = (email) => async (dispatch) => {
+  const baseUrl = getBaseUrl();
+
   try {
-    const response = await axios.get(`/users`, {
-      params: { email }
+    const response = await axios.get(`${baseUrl}/api/users`, {
+      params: { email },
     });
 
     if (response.status === 200 && response.data) {
@@ -111,11 +131,10 @@ export const fetchUserData = (email) => async (dispatch) => {
       dispatch(setUserExistence(true));
     } else {
       dispatch(setUserExistence(false));
-      throw new Error('Не удалось получить данные пользователя');
+      throw new Error("Пользователь не найден или ошибка сервера");
     }
   } catch (error) {
-    console.error('Ошибка получения данных пользователя:', error);
-    
+    console.error("fetchUserData error:", error);
     dispatch(setUserExistence(false));
   }
 };
